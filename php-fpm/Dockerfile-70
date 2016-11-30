@@ -1,0 +1,149 @@
+FROM php:7.0-fpm
+
+MAINTAINER dongdx <dongdx@inz.me>
+
+ADD sources.list    /etc/apt/sources.list
+
+#
+#--------------------------------------------------------------------------
+# update api-get module
+#--------------------------------------------------------------------------
+#
+
+RUN apt-get update && apt-get install -y \
+        #libxml2-dev \
+        libfreetype6-dev \
+        libmemcached-dev \
+        libmcrypt-dev \
+        libjpeg62-turbo-dev \
+        libpng12-dev
+
+#
+#--------------------------------------------------------------------------
+# 安装基本扩展
+#--------------------------------------------------------------------------
+#
+
+RUN docker-php-ext-configure gd --with-freetype-dir=/usr/include/ --with-jpeg-dir=/usr/include/ \
+        && docker-php-ext-install zip \
+        && docker-php-ext-install gd \
+        && docker-php-ext-install mcrypt \
+        && docker-php-ext-install mysqli \
+        && apt-get clean
+
+#
+#--------------------------------------------------------------------------
+# 安装扩展
+#--------------------------------------------------------------------------
+#
+
+#####################################
+# xDebug:
+#####################################
+
+ARG INSTALL_XDEBUG=false
+RUN if [ ${INSTALL_XDEBUG} = true ]; then \
+    # Install the xdebug extension
+    pecl install xdebug && \
+    docker-php-ext-enable xdebug \
+;fi
+
+# Copy xdebug configration for remote debugging
+COPY ./xdebug.ini /usr/local/etc/php/conf.d/xdebug.ini
+
+#####################################
+# MongoDB:
+#####################################
+
+ARG INSTALL_MONGO=false
+RUN if [ ${INSTALL_MONGO} = true ]; then \
+    # Install the mongodb extension
+    pecl install mongodb && \
+    docker-php-ext-enable mongodb \
+;fi
+
+#####################################
+# PHP Memcached:
+#####################################
+
+ARG INSTALL_MEMCACHED=false
+RUN if [ ${INSTALL_MEMCACHED} = true ]; then \
+    # Install the php memcached extension
+    curl -L -o /tmp/memcached.tar.gz "https://github.com/php-memcached-dev/php-memcached/archive/php7.tar.gz" \
+    && mkdir -p memcached \
+    && tar -C memcached -zxvf /tmp/memcached.tar.gz --strip 1 \
+    && ( \
+        cd memcached \
+        && phpize \
+        && ./configure \
+        && make -j$(nproc) \
+        && make install \
+    ) \
+    && rm -r memcached \
+    && rm /tmp/memcached.tar.gz \
+    && docker-php-ext-enable memcached \
+;fi
+
+#####################################
+# PHP Redis:
+#####################################
+
+ARG INSTALL_REDIS=false
+RUN if [ ${INSTALL_REDIS} = true ]; then \
+    pecl install redis && \
+    docker-php-ext-enable redis \
+;fi
+
+#####################################
+# PHP Aerospike:
+#####################################
+
+ARG INSTALL_AEROSPIKE_EXTENSION=false
+ENV INSTALL_AEROSPIKE_EXTENSION ${INSTALL_AEROSPIKE_EXTENSION}
+# Copy aerospike configration for remote debugging
+COPY ./aerospike.ini /usr/local/etc/php/conf.d/aerospike.ini
+RUN if [ ${INSTALL_AEROSPIKE_EXTENSION} = true ]; then \
+    # Install the php aerospike extension
+    curl -L -o /tmp/aerospike-client-php.tar.gz "https://github.com/luciano-jr/aerospike-client-php/archive/master.tar.gz" \
+    && mkdir -p aerospike-client-php \
+    && tar -C aerospike-client-php -zxvf /tmp/aerospike-client-php.tar.gz --strip 1 \
+    && ( \
+        cd aerospike-client-php/src/aerospike \
+        && phpize \
+        && ./build.sh \
+        && make install \
+    ) \
+    && rm /tmp/aerospike-client-php.tar.gz \
+;fi
+
+#####################################
+# Opcache:
+#####################################
+
+ARG INSTALL_OPCACHE=false
+RUN if [ ${INSTALL_OPCACHE} = true ]; then \
+    docker-php-ext-install opcache && \
+    docker-php-ext-enable opcache \
+;fi
+
+# Copy opcache configration
+COPY ./opcache.ini /usr/local/etc/php/conf.d/opcache.ini
+
+#
+#--------------------------------------------------------------------------
+# Final Touch
+#--------------------------------------------------------------------------
+#
+
+ADD ./php.ini /usr/local/etc/php/conf.d
+ADD ./php-fpm.conf /usr/local/etc/php-fpm.d/
+
+RUN rm -r /var/lib/apt/lists/*
+
+RUN usermod -u 1000 www-data
+
+WORKDIR /www
+
+CMD ["php-fpm"]
+
+EXPOSE 9000

@@ -1,0 +1,161 @@
+version: '2'
+
+services:
+
+### 代码目录 容器 #############################
+
+    applications:
+        image: tianon/true
+        volumes:
+            # 工作目录,本地目录:docker中目录
+            - ~/Site:/www
+
+### 工作台 容器 ###########################
+
+    workspace:
+        build:
+            context: ./workspace
+            args:
+                - INSTALL_XDEBUG=true
+                - INSTALL_MONGO=false
+                - INSTALL_NODE=false
+                - INSTALL_YARN=false
+                - INSTALL_DRUSH=false
+                - INSTALL_AEROSPIKE_EXTENSION=false
+                - COMPOSER_GLOBAL_INSTALL=false
+                - INSTALL_WORKSPACE_SSH=true
+                - PUID=1000
+                - PGID=1000
+                - NODE_VERSION=stable
+                - TZ=PRC
+        volumes_from:
+            - applications
+        extra_hosts:
+            # 容器的ip地址,如果是127.0.0.1,填写本机的ip地址
+            - "dockerhost:192.168.43.131"
+        ports:
+           - "22:22"
+        tty: true
+
+### PHP-FPM 容器 #######################################
+
+    php-fpm:
+        build:
+            context: ./php-fpm
+            args:
+                - INSTALL_XDEBUG=true
+                - INSTALL_MONGO=false
+                - INSTALL_MEMCACHED=true
+                - INSTALL_REDIS=true
+                - INSTALL_OPCACHE=false
+                - INSTALL_AEROSPIKE_EXTENSION=false
+            #dockerfile: Dockerfile-70
+            dockerfile: Dockerfile-56
+        volumes_from:
+            - applications
+        expose:
+            - "9000"
+        links:
+            - workspace
+        extra_hosts:
+            # 容器的ip地址,如果是127.0.0.1,填写本机的ip地址
+            - "dockerhost:192.168.43.131"
+        environment:
+            # IDE配置应用程序的服务名,用于xdebug调试用
+            - PHP_IDE_CONFIG=serverName=xdebug
+
+### Nginx 容器 ##################################
+
+    nginx:
+        build:
+            context: ./nginx
+            args:
+                - PHP_UPSTREAM=php-fpm
+        volumes_from:
+            - applications
+        volumes:
+            # 存放日志目录,本地目录:docker中目录
+            - ~/Site/logs/nginx/:/var/log/nginx
+        ports:
+            - "80:80"
+            - "443:443"
+        links:
+            - php-fpm
+
+### MySQL 容器 #########################################
+
+    mysql:
+        build:
+            context: ./mysql
+            args:
+                # 生成一个默认的远程连接用户
+                - MYSQL_USER=default
+                - MYSQL_PASSWORD=default
+                # 默认root用户的密码
+                - MYSQL_ROOT_PASSWORD=root
+        volumes:
+            # 数据库数据文件目录,本地目录:docker中目录
+            - ~/Docker/data/mysql:/var/lib/mysql
+        ports:
+            - "3306:3306"
+
+### Redis 容器 #########################################
+
+    redis:
+        build: ./redis
+        volumes:
+            # redis数据目录,本地目录:docker中目录
+            - ~/Docker/data/redis:/data
+        ports:
+            - "6379:6379"
+
+### Memcached 容器 #####################################
+
+    memcached:
+        build: ./memcached
+        volumes:
+            - ~/Docker/data/memcached:/var/lib/memcached
+        ports:
+            - "11211:11211"
+        links:
+            - php-fpm
+
+### MongoDB 容器 #######################################
+
+    mongo:
+        build: ./mongo
+        ports:
+            - "27017:27017"
+        volumes:
+            - ~/Docker/data/mongo:/data/db
+
+### RabbitMQ 容器:消息队列 ######################################
+
+    rabbitmq:
+        build: ./rabbitmq
+        ports:
+            - "5672:5672"
+            - "15671:15671"
+            - "8080:15672"
+        privileged: true
+        environment:
+            RABBITMQ_DEFAULT_USER: guest
+            RABBITMQ_DEFAULT_PASS: guest
+        links:
+            - php-fpm
+
+### ElasticSearch 容器:分词搜索 #################################
+
+    elasticsearch:
+        build: ./elasticsearch
+        volumes:
+            - ~/Docker/data/elasticsearch-data:/usr/share/elasticsearch/data
+            - ~/Docker/data/elasticsearch-pkugins:/usr/share/elasticsearch/data
+        ports:
+            - "9200:9200"
+            - "9300:9300"
+        links:
+            - php-fpm
+
+
+
